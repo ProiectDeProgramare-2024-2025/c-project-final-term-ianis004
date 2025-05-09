@@ -1,0 +1,544 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <stdarg.h>
+
+
+#ifdef _WIN32
+#include <windows.h>
+#define COLOR_RED SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 12)
+#define COLOR_GREEN SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 10)
+#define COLOR_YELLOW SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 14)
+#define COLOR_BLUE SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 9)
+#define COLOR_RESET SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 7)
+#else
+#define COLOR_RED printf("\033[31m")
+#define COLOR_GREEN printf("\033[32m")
+#define COLOR_YELLOW printf("\033[33m")
+#define COLOR_BLUE printf("\033[34m")
+#define COLOR_RESET printf("\033[0m")
+#endif
+
+#define MAX_PLAYLISTS 100
+#define MAX_SONGS 50
+#define DATA_FILE "playlists.txt"
+
+typedef struct {
+    char name[100];
+    float rating;
+    char songs[MAX_SONGS][100];
+    int song_count;
+} Playlist;
+
+Playlist playlists[MAX_PLAYLISTS];
+int playlist_count = 0;
+
+void clear_screen() {
+    #ifdef _WIN32
+        system("cls");
+    #else
+        system("clear");
+    #endif
+}
+
+void print_header(const char* text) {
+    COLOR_BLUE;
+    printf("\n%s\n", text);
+    COLOR_RESET;
+}
+
+void print_success(const char* text) {
+    COLOR_GREEN;
+    printf("%s", text);
+    COLOR_RESET;
+}
+
+void print_error(const char* format, ...) {
+    va_list args;
+    COLOR_RED;
+    va_start(args, format);
+    vprintf(format, args);
+    va_end(args);
+    COLOR_RESET;
+}
+
+void print_highlight(const char* format, ...) {
+    va_list args;
+    COLOR_YELLOW;
+    va_start(args, format);
+    vprintf(format, args);
+    va_end(args);
+    COLOR_RESET;
+}
+
+int validate_rating(float rating) {
+    return (rating >= 0 && rating <= 5);
+}
+
+int validate_name(const char* name) {
+    if (strlen(name) == 0 || strlen(name) > 99) return 0;
+    for (int i = 0; name[i]; i++) {
+        if (!isprint(name[i])) return 0;
+    }
+    return 1;
+}
+
+void load_playlists() {
+    FILE *file = fopen("playlists.txt", "r");
+    if (!file) return;
+
+    while (fscanf(file, "%99[^,],%f,%d%*c", playlists[playlist_count].name,
+          &playlists[playlist_count].rating,
+          &playlists[playlist_count].song_count) == 3) {
+
+        for (int i = 0; i < playlists[playlist_count].song_count; i++) {
+            fgets(playlists[playlist_count].songs[i],
+                  sizeof(playlists[playlist_count].songs[i]), file);
+
+            playlists[playlist_count].songs[i][strcspn(
+                playlists[playlist_count].songs[i], "\n")] = '\0';
+        }
+        playlist_count++;
+    }
+    fclose(file);
+}
+
+void view_raw_file() {
+    clear_screen();
+    print_header("Raw contents of playlists data file:");
+    printf("\n");
+
+    FILE *file = fopen("playlists.txt", "r");
+    if (!file) {
+        print_error("Error opening file!\n");
+        return;
+    }
+
+    char line[256];
+    while (fgets(line, sizeof(line), file)) {
+        printf("%s", line);
+    }
+    fclose(file);
+
+    printf("\nPress Enter to return to menu...");
+    getchar();
+    getchar();
+}
+
+void save_playlists() {
+    FILE *file = fopen("playlists.txt", "w");
+    if (!file) {
+        print_error("Error saving playlists to file!\n");
+        return;
+    }
+
+    for (int i = 0; i < playlist_count; i++) {
+        fprintf(file, "%s,%.1f,%d\n", playlists[i].name, playlists[i].rating, playlists[i].song_count);
+
+        for (int j = 0; j < playlists[i].song_count; j++) {
+            fprintf(file, "%s\n", playlists[i].songs[j]);
+        }
+    }
+    fclose(file);
+}
+
+void display_playlists() {
+    clear_screen();
+    if (playlist_count == 0) {
+        print_error("No playlists available.\n");
+        return;
+    }
+
+    Playlist *sorted_playlists[MAX_PLAYLISTS];
+    for (int i = 0; i < playlist_count; i++) {
+        sorted_playlists[i] = &playlists[i];
+    }
+
+    for (int i = 0; i < playlist_count - 1; i++) {
+        for (int j = 0; j < playlist_count - i - 1; j++) {
+            if (sorted_playlists[j]->rating < sorted_playlists[j+1]->rating) {
+                Playlist *temp = sorted_playlists[j];
+                sorted_playlists[j] = sorted_playlists[j+1];
+                sorted_playlists[j+1] = temp;
+            }
+        }
+    }
+
+    print_header("Your Playlists (Sorted by Rating):");
+    for (int i = 0; i < playlist_count; i++) {
+        printf("%d. ", i + 1);
+        print_highlight("%s", sorted_playlists[i]->name);
+        printf(" (Rating: ");
+        print_highlight("%.1f", sorted_playlists[i]->rating);
+        printf(", Songs: ");
+        print_highlight("%d", sorted_playlists[i]->song_count);
+        printf(")\n");
+    }
+}
+
+void display_songs(int playlist_index) {
+    clear_screen();
+    if (playlists[playlist_index].song_count == 0) {
+        print_error("No songs in this playlist.\n");
+        return;
+    }
+
+    printf("\nSongs in '");
+    print_highlight("%s", playlists[playlist_index].name);
+    printf("':\n");
+
+    for (int i = 0; i < playlists[playlist_index].song_count; i++) {
+        printf("%d. ", i + 1);
+        print_highlight("%s", playlists[playlist_index].songs[i]);
+        printf("\n");
+    }
+}
+
+void add_playlist() {
+    clear_screen();
+    if (playlist_count >= MAX_PLAYLISTS) {
+        print_error("Maximum number of playlists reached!\n");
+        return;
+    }
+
+    Playlist new_playlist = { .song_count = 0 };
+
+    while (1) {
+        printf("Enter playlist name (max 99 characters, no special chars): ");
+        scanf(" %99[^\n]", new_playlist.name);
+        if (validate_name(new_playlist.name)) break;
+        print_error("Invalid name! Please try again.\n");
+    }
+
+    while (1) {
+        printf("Enter rating (0.0-5.0): ");
+        scanf("%f", &new_playlist.rating);
+        if (validate_rating(new_playlist.rating)) break;
+        print_error("Invalid rating! Please enter a value between 0 and 5.\n");
+    }
+
+    playlists[playlist_count++] = new_playlist;
+    save_playlists();
+    print_success("\nPlaylist added successfully!\n");
+}
+
+void delete_playlist() {
+    clear_screen();
+    display_playlists();
+    if (playlist_count == 0) return;
+
+    int index;
+    printf("\nEnter playlist number to delete (1-%d): ", playlist_count);
+    while (scanf("%d", &index) != 1 || index < 1 || index > playlist_count) {
+        print_error("Invalid selection! Please enter a number between 1 and %d: ", playlist_count);
+        while (getchar() != '\n');
+    }
+
+    for (int i = index - 1; i < playlist_count - 1; i++) {
+        playlists[i] = playlists[i + 1];
+    }
+    playlist_count--;
+    save_playlists();
+    print_success("\nPlaylist deleted successfully!\n");
+}
+
+void add_song_to_playlist() {
+    clear_screen();
+    display_playlists();
+    if (playlist_count == 0) return;
+
+    int index;
+    printf("\nEnter playlist number to add song to (1-%d): ", playlist_count);
+    while (scanf("%d", &index) != 1 || index < 1 || index > playlist_count) {
+        print_error("Invalid selection! Please enter a number between 1 and %d: ", playlist_count);
+        while (getchar() != '\n');
+    }
+
+    index--;
+    if (playlists[index].song_count >= MAX_SONGS) {
+        print_error("Playlist is full! Maximum %d songs allowed.\n", MAX_SONGS);
+        return;
+    }
+
+    printf("Enter song name (max 99 characters): ");
+    getchar();
+    char song_name[100];
+    fgets(song_name, 100, stdin);
+    song_name[strcspn(song_name, "\n")] = '\0';
+
+    if (!validate_name(song_name)) {
+        print_error("Invalid song name!\n");
+        return;
+    }
+
+    strcpy(playlists[index].songs[playlists[index].song_count], song_name);
+    playlists[index].song_count++;
+
+    save_playlists();
+    printf("\nSong '");
+    print_highlight("%s", song_name);
+    printf("' added successfully to '");
+    print_highlight("%s", playlists[index].name);
+    printf("'!\n");
+}
+
+void remove_song_from_playlist() {
+    clear_screen();
+    display_playlists();
+    if (playlist_count == 0) return;
+
+    int playlist_index;
+    printf("\nEnter playlist number to remove song from (1-%d): ", playlist_count);
+    while (scanf("%d", &playlist_index) != 1 || playlist_index < 1 || playlist_index > playlist_count) {
+        print_error("Invalid selection! Please enter a number between 1 and %d: ", playlist_count);
+        while (getchar() != '\n');
+    }
+
+    playlist_index--;
+    display_songs(playlist_index);
+
+    if (playlists[playlist_index].song_count == 0) return;
+
+    int song_index;
+    printf("\nEnter song number to remove (1-%d): ", playlists[playlist_index].song_count);
+    while (scanf("%d", &song_index) != 1 || song_index < 1 || song_index > playlists[playlist_index].song_count) {
+        print_error("Invalid selection! Please enter a number between 1 and %d: ", playlists[playlist_index].song_count);
+        while (getchar() != '\n');
+    }
+
+    song_index--;
+    printf("\nRemoving song '");
+    print_highlight("%s", playlists[playlist_index].songs[song_index]);
+    printf("' from '");
+    print_highlight("%s", playlists[playlist_index].name);
+    printf("'...\n");
+
+    for (int i = song_index; i < playlists[playlist_index].song_count - 1; i++) {
+        strcpy(playlists[playlist_index].songs[i], playlists[playlist_index].songs[i + 1]);
+    }
+    playlists[playlist_index].song_count--;
+
+    save_playlists();
+    print_success("\nSong removed successfully!\n");
+}
+
+void display_menu() {
+    print_header("\nPlaylist Manager");
+    printf("1. View Playlists\n");
+    printf("2. Add Playlist\n");
+    printf("3. Delete Playlist\n");
+    printf("4. Add Song to Playlist\n");
+    printf("5. Remove Song from Playlist\n");
+    printf("6. View Songs in Playlist\n");
+    printf("7. Exit\n");
+    printf("8. View Raw Data File\n");
+    printf("\nEnter your choice (1-8): ");
+}
+
+int main() {
+    load_playlists();
+    int choice;
+
+    while (1) {
+        clear_screen();
+        display_menu();
+
+        while (scanf("%d", &choice) != 1 || choice < 1 || choice > 8) {
+            print_error("Invalid choice! Please enter a number between 1 and 8: ");
+            while (getchar() != '\n');
+        }
+
+        while (getchar() != '\n');
+
+        switch (choice) {
+            case 1:
+                display_playlists();
+                printf("\nPress Enter to continue...");
+                getchar();
+                break;
+
+            case 2:
+                add_playlist();
+                printf("\nPress Enter to continue...");
+                getchar();
+                break;
+
+            case 3:
+                delete_playlist();
+                printf("\nPress Enter to continue...");
+                getchar();
+                break;
+
+            case 4:
+                add_song_to_playlist();
+                printf("\nPress Enter to continue...");
+                getchar();
+                break;
+
+            case 5: {
+                clear_screen();
+                if (playlist_count == 0) {
+                    print_error("No playlists available.\n");
+                    printf("\nPress Enter to continue...");
+                    getchar();
+                    break;
+                }
+
+
+                Playlist *sorted_playlists[MAX_PLAYLISTS];
+                for (int i = 0; i < playlist_count; i++) {
+                    sorted_playlists[i] = &playlists[i];
+                }
+
+                for (int i = 0; i < playlist_count - 1; i++) {
+                    for (int j = 0; j < playlist_count - i - 1; j++) {
+                        if (sorted_playlists[j]->rating < sorted_playlists[j+1]->rating) {
+                            Playlist *temp = sorted_playlists[j];
+                            sorted_playlists[j] = sorted_playlists[j+1];
+                            sorted_playlists[j+1] = temp;
+                        }
+                    }
+                }
+
+                print_header("Your Playlists (Sorted by Rating):");
+                for (int i = 0; i < playlist_count; i++) {
+                    printf("%d. ", i + 1);
+                    print_highlight("%s", sorted_playlists[i]->name);
+                    printf(" (Rating: ");
+                    print_highlight("%.1f", sorted_playlists[i]->rating);
+                    printf(", Songs: ");
+                    print_highlight("%d", sorted_playlists[i]->song_count);
+                    printf(")\n");
+                }
+
+                int playlist_choice;
+                printf("\nEnter playlist number to remove song from (1-%d): ", playlist_count);
+                while (scanf("%d", &playlist_choice) != 1 || playlist_choice < 1 || playlist_choice > playlist_count) {
+                    print_error("Invalid selection! Please enter a number between 1 and %d: ", playlist_count);
+                    while (getchar() != '\n');
+                }
+                getchar();
+
+
+                int original_index = -1;
+                for (int i = 0; i < playlist_count; i++) {
+                    if (strcmp(playlists[i].name, sorted_playlists[playlist_choice-1]->name) == 0) {
+                        original_index = i;
+                        break;
+                    }
+                }
+
+                if (original_index == -1) {
+                    print_error("Error: Could not find selected playlist.\n");
+                    printf("\nPress Enter to continue...");
+                    getchar();
+                    break;
+                }
+
+                display_songs(original_index);
+
+                if (playlists[original_index].song_count == 0) {
+                    printf("\nPress Enter to continue...");
+                    getchar();
+                    break;
+                }
+
+                int song_index;
+                printf("\nEnter song number to remove (1-%d): ", playlists[original_index].song_count);
+                while (scanf("%d", &song_index) != 1 || song_index < 1 || song_index > playlists[original_index].song_count) {
+                    print_error("Invalid selection! Please enter a number between 1 and %d: ", playlists[original_index].song_count);
+                    while (getchar() != '\n');
+                }
+                getchar();
+
+                printf("\nRemoving song '");
+                print_highlight("%s", playlists[original_index].songs[song_index-1]);
+                printf("' from '");
+                print_highlight("%s", playlists[original_index].name);
+                printf("'...\n");
+
+                for (int i = song_index-1; i < playlists[original_index].song_count - 1; i++) {
+                    strcpy(playlists[original_index].songs[i], playlists[original_index].songs[i + 1]);
+                }
+                playlists[original_index].song_count--;
+
+                save_playlists();
+                print_success("\nSong removed successfully!\n");
+                printf("\nPress Enter to continue...");
+                getchar();
+                break;
+            }
+
+            case 6: {
+                clear_screen();
+                if (playlist_count == 0) {
+                    print_error("No playlists available.\n");
+                    printf("\nPress Enter to continue...");
+                    getchar();
+                    break;
+                }
+
+
+                Playlist *sorted_playlists[MAX_PLAYLISTS];
+                for (int i = 0; i < playlist_count; i++) {
+                    sorted_playlists[i] = &playlists[i];
+                }
+
+                for (int i = 0; i < playlist_count - 1; i++) {
+                    for (int j = 0; j < playlist_count - i - 1; j++) {
+                        if (sorted_playlists[j]->rating < sorted_playlists[j+1]->rating) {
+                            Playlist *temp = sorted_playlists[j];
+                            sorted_playlists[j] = sorted_playlists[j+1];
+                            sorted_playlists[j+1] = temp;
+                        }
+                    }
+                }
+
+                print_header("Your Playlists (Sorted by Rating):");
+                for (int i = 0; i < playlist_count; i++) {
+                    printf("%d. ", i + 1);
+                    print_highlight("%s", sorted_playlists[i]->name);
+                    printf(" (Rating: ");
+                    print_highlight("%.1f", sorted_playlists[i]->rating);
+                    printf(", Songs: ");
+                    print_highlight("%d", sorted_playlists[i]->song_count);
+                    printf(")\n");
+                }
+
+                int index;
+                printf("\nEnter playlist number to view songs (1-%d): ", playlist_count);
+                while (scanf("%d", &index) != 1 || index < 1 || index > playlist_count) {
+                    print_error("Invalid selection! Please enter a number between 1 and %d: ", playlist_count);
+                    while (getchar() != '\n');
+                }
+                getchar();
+
+                int original_index = -1;
+                for (int i = 0; i < playlist_count; i++) {
+                    if (strcmp(playlists[i].name, sorted_playlists[index-1]->name) == 0) {
+                        original_index = i;
+                        break;
+                    }
+                }
+
+                if (original_index != -1) {
+                    display_songs(original_index);
+                } else {
+                    print_error("Error: Could not find selected playlist.\n");
+                }
+
+                printf("\nPress Enter to continue...");
+                getchar();
+                break;
+                }
+            case 7:
+                print_success("\nGoodbye!\n");
+                return 0;
+
+            case 8:
+                view_raw_file();
+                break;
+        }
+    }
+}
